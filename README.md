@@ -8,10 +8,13 @@
 
 ## 快速开始
 
-**双击 `盘感训练器.html` 即可。** 不需要安装任何东西、不需要联网、不需要开服务器。
+**双击 `index.html` 即可。** 不需要安装任何东西、不需要联网、不需要开服务器。
 
-> ⚠️ `盘感训练器.html` 和 `game-data.js` **必须放在同一个文件夹里**。
+> ⚠️ `index.html` 和 `game-data.js` **必须放在同一个文件夹里**。
 > 数据是通过相对路径 `src="game-data.js"` 读取的，挪开任何一个都会白屏。
+
+**English:** double-click `index.html` to play. No install, no network, no server needed.
+`index.html` and `game-data.js` must stay in the same folder, or the page will be blank.
 
 ---
 
@@ -102,13 +105,14 @@
 ## 项目结构
 
 ```
-盘感训练器/
-├── 盘感训练器.html     主程序（单文件，内联 CSS + JS）
-├── game-data.js        行情数据（必须与 html 同目录）
-├── 使用说明.txt        玩家向简版说明
+MarketSenseTrainer/
+├── index.html          主程序（单文件，内联 CSS + JS）
+├── game-data.js        行情数据（必须与 index.html 同目录）
+├── README.txt          玩家向简版说明
 ├── README.md           本文件（开发者 / 深度使用向）
 ├── .gitignore
-└── docs/               开发过程记录
+└── docs/
+    └── CHANGELOG.md    开发过程记录
 ```
 
 ---
