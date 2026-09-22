@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>盘感训练器 · 买 / 卖 / 过</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+    --ink:#e8ebf0; --ink2:#9aa4b5; --ink3:#6b7484;
+    --red:#f04a42; --green:#22b573; --gold:#e8b339; --blue:#3d8bfd;
+    --red-bg:rgba(240,74,66,.12); --green-bg:rgba(34,181,115,.12);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;min-height:100%;}
+  body{background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.6;overflow-x:hidden;}
+  .app{
+    max-width:1680px;margin:0 auto;min-height:100vh;
+    display:grid;grid-template-columns:1fr 340px;
+    grid-template-rows:auto auto 1fr auto;
+    grid-template-areas:
+      "topbar topbar"
+      "stats  stats"
+      "chart  side"
+      "log    side";
+    gap:0;
+  }
+
+  /* ===== 顶栏 ===== */
+  .topbar{grid-area:topbar;display:flex;align-items:center;justify-content:space-between;
+    padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);
+    position:sticky;top:0;z-index:30;}
+  .topbar .t{font-weight:700;font-size:16px;letter-spacing:.02em;}
+  .topbar .t span{color:var(--ink3);font-weight:400;font-size:12px;margin-left:8px;}
+  .iconbtn{background:var(--panel2);border:1px solid var(--line);color:var(--ink2);
+    border-radius:7px;padding:6px 13px;font-size:12.5px;cursor:pointer;font-family:inherit;}
+  .iconbtn:active{background:var(--line);}
+  .iconbtn:hover{background:var(--line);color:var(--ink);}
+
+  /* ===== 状态条 ===== */
+  .stats{grid-area:stats;display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    background:var(--line);border-bottom:1px solid var(--line);}
+  .stats > div{background:var(--panel);padding:11px 14px;}
+  .stats .l{font-size:11.5px;color:var(--ink3);margin-bottom:3px;letter-spacing:.03em;}
+  .stats .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+  .v.up{color:var(--red);} .v.down{color:var(--green);} .v.flat{color:var(--ink2);}
+  .stats .sub{font-size:11.5px;color:var(--ink3);font-variant-numeric:tabular-nums;margin-top:1px;}
+
+  /* ===== 图区 ===== */
+  .chartwrap{grid-area:chart;position:relative;background:var(--panel);
+    border-bottom:1px solid var(--line);min-height:0;}
+  #chart{width:100%;height:clamp(360px, 52vh, 620px);}
+  .badge{position:absolute;top:12px;left:18px;z-index:5;
+    background:rgba(15,17,21,.86);border:1px solid var(--line);border-radius:8px;
+    padding:8px 14px;font-size:13px;line-height:1.6;backdrop-filter:blur(4px);}
+  .badge .code{font-weight:700;letter-spacing:.06em;color:var(--gold);font-size:15px;}
+  .badge .dt{color:var(--ink2);font-variant-numeric:tabular-nums;font-size:12.5px;}
+  .poschip{position:absolute;top:12px;right:18px;z-index:5;
+    border-radius:8px;padding:8px 16px;font-size:14px;font-weight:700;
+    display:none;}
+  .poschip.on{display:block;background:var(--blue);color:#fff;}
+
+  /* 视窗控制条：调整显示多少根K线 */
+  .chartctl{position:absolute;bottom:10px;left:18px;z-index:5;
+    display:flex;align-items:center;gap:6px;
+    background:rgba(15,17,21,.86);border:1px solid var(--line);border-radius:8px;
+    padding:5px 9px;backdrop-filter:blur(4px);}
+  .chartctl .lbl{font-size:11.5px;color:var(--ink3);margin-right:2px;}
+  .zbtn{background:transparent;border:1px solid transparent;color:var(--ink3);
+    font-size:11.5px;padding:2px 8px;border-radius:5px;cursor:pointer;font-family:inherit;}
+  .zbtn:hover{color:var(--ink);background:var(--panel2);}
+  .zbtn.on{background:var(--blue);color:#fff;font-weight:700;}
+
+  /* ===== 侧栏（按钮 + 日志）===== */
+  .side{grid-area:side;display:flex;flex-direction:column;gap:0;
+    border-left:1px solid var(--line);background:var(--bg);min-height:0;}
+  .actions{padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .act{border:0;border-radius:12px;padding:22px 8px;font-size:22px;font-weight:800;
+    font-family:inherit;cursor:pointer;letter-spacing:.14em;transition:transform .08s,filter .12s;
+    display:flex;align-items:center;justify-content:center;gap:8px;}
+  .act:hover:not(:disabled){filter:brightness(1.12);}
+  .act:active:not(:disabled){transform:scale(.97);}
+  .act.buy{background:var(--red);color:#fff;box-shadow:0 3px 16px rgba(240,74,66,.3);}
+  .act.sell{background:var(--green);color:#fff;box-shadow:0 3px 16px rgba(34,181,115,.3);}
+  .act.pass{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    grid-column:span 2;padding:16px 8px;font-size:16px;letter-spacing:.2em;}
+  .act:disabled{opacity:.3;box-shadow:none;cursor:not-allowed;}
+  .act .k{font-size:11px;font-weight:400;opacity:.75;letter-spacing:0;}
+
+  /* ===== 日志 ===== */
+  .log{flex:1;margin:0 16px 16px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-height:150px;}
+  .log .h{padding:9px 14px;font-size:12px;color:var(--ink3);border-bottom:1px solid var(--line);
+    letter-spacing:.05em;}
+  .log .body{overflow-y:auto;flex:1;padding:4px 0;}
+  .log .row{padding:7px 14px;font-size:13px;display:flex;justify-content:space-between;
+    gap:10px;border-bottom:1px solid rgba(42,47,58,.5);}
+  .log .row:last-child{border-bottom:0;}
+  .log .row .a{color:var(--ink2);}
+  .log .row .p{font-variant-numeric:tabular-nums;font-weight:700;}
+  .log .empty{padding:18px 14px;color:var(--ink3);font-size:13px;text-align:center;}
+
+  /* ===== 遮罩 / 弹层 ===== */
+  .overlay{position:fixed;inset:0;background:rgba(8,10,14,.9);z-index:100;
+    display:none;align-items:center;justify-content:center;padding:24px;
+    backdrop-filter:blur(3px);overflow-y:auto;}
+  .overlay.on{display:flex;}
+  .pop{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    width:100%;max-width:780px;max-height:90vh;overflow-y:auto;padding:28px 30px;}
+  .pop h2{margin:0 0 5px;font-size:25px;font-weight:800;}
+  .pop .sub{color:var(--ink3);font-size:13px;margin-bottom:18px;}
+  .pop h3{font-size:15px;margin:24px 0 10px;color:var(--ink2);letter-spacing:.03em;}
+
+  .verdict{background:var(--panel2);border-radius:12px;padding:18px 20px;margin:16px 0;}
+  .verdict .big{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .verdict .tag{display:inline-block;font-size:12.5px;padding:3px 11px;border-radius:20px;
+    margin-left:10px;vertical-align:6px;font-weight:700;}
+  .verdict .tag.good{background:var(--red-bg);color:var(--red);}
+  .verdict .tag.mid{background:rgba(232,179,57,.14);color:var(--gold);}
+  .verdict .tag.bad{background:var(--green-bg);color:var(--green);}
+
+  .scorecard{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin:16px 0;}
+  .sc{background:var(--panel2);border-radius:10px;padding:12px 14px;}
+  .sc .l{font-size:11.5px;color:var(--ink3);}
+  .sc .v{font-size:21px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px;}
+
+  .bar{margin:9px 0;}
+  .bar .lb{display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;}
+  .bar .lb .n{color:var(--ink2);} .bar .lb .val{font-variant-numeric:tabular-nums;font-weight:700;}
+  .bar .track{height:7px;background:var(--panel2);border-radius:4px;overflow:hidden;}
+  .bar .fill{height:100%;border-radius:4px;background:var(--blue);transition:width .5s ease;}
+
+  table.tb{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+  table.tb th,table.tb td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);
+    font-variant-numeric:tabular-nums;}
+  table.tb th{color:var(--ink3);font-weight:600;font-size:11px;text-align:right;}
+  table.tb th:first-child,table.tb td:first-child{text-align:left;font-variant-numeric:normal;}
+
+  .btnrow{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;}
+  .btn{border:0;border-radius:10px;padding:13px;font-size:14.5px;font-weight:700;
+    font-family:inherit;cursor:pointer;}
+  .btn.pri{background:var(--blue);color:#fff;}
+  .btn.sec{background:var(--panel2);color:var(--ink);border:1px solid var(--line);}
+  .btn:active{opacity:.85;}
+
+  .note{background:var(--panel2);border-radius:9px;padding:11px 13px;font-size:12px;
+    color:var(--ink2);line-height:1.7;margin-top:14px;}
+  .note b{color:var(--ink);}
+  .disc{font-size:11px;color:var(--ink3);margin-top:16px;padding-top:12px;
+    border-top:1px solid var(--line);line-height:1.7;}
+
+  .startlogo{text-align:center;margin-bottom:18px;}
+  .startlogo .em{font-size:40px;}
+  .rules{background:var(--panel2);border-radius:10px;padding:13px 15px;font-size:12.5px;
+    color:var(--ink2);line-height:1.85;}
+  .rules b{color:var(--ink);}
+  .rules .em{color:var(--gold);font-weight:700;}
+
+  /* ---- 窄屏（平板/手机）：退回单列竖排 ---- */
+  @media(max-width:900px){
+    .app{
+      grid-template-columns:1fr;
+      grid-template-areas:
+        "topbar"
+        "stats"
+        "chart"
+        "side";
+    }
+    .side{border-left:0;border-top:1px solid var(--line);}
+    .log{max-height:220px;}
+    #chart{height:clamp(300px,44vh,420px);}
+    .pop{max-width:560px;padding:22px 20px;}
+    .scorecard{grid-template-columns:repeat(2,1fr);}
+    .stats .v{font-size:17px;}
+    .stats > div{padding:9px 10px;text-align:center;}
+  }
+  @media(max-width:400px){
+    #chart{height:260px;}
+    .act{font-size:18px;padding:16px 8px;}
+    .stats .v{font-size:15px;}
+    .pop{padding:18px 16px;}
+    .pop h2{font-size:21px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="topbar">
+    <div class="t">盘感训练器<span>买 / 卖 / 过</span></div>
+    <div>
+      <button class="iconbtn" id="btnHelp">规则</button>
+      <button class="iconbtn" id="btnQuit">结束</button>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div><div class="l">总资产</div><div class="v flat" id="sEquity">100,000</div><div class="sub" id="sPnl">±0.00%</div></div>
+    <div><div class="l">持仓</div><div class="v flat" id="sPos">空仓</div><div class="sub" id="sPosPnl">—</div></div>
+    <div><div class="l">进度</div><div class="v" style="color:var(--ink2)" id="sDay">0 / 0</div><div class="sub" id="sDate">—</div></div>
+    <div><div class="l">出手</div><div class="v" style="color:var(--ink2)" id="sTrade">0 笔</div><div class="sub" id="sWin">—</div></div>
+  </div>
+
+  <div class="chartwrap">
+    <div class="badge">
+      <div><span class="code" id="bCode">??????</span> <span style="color:var(--ink3)" id="bSector"></span></div>
+      <div class="dt" id="bDate">—</div>
+    </div>
+    <div class="chartctl">
+      <span class="lbl">显示K线</span>
+      <button class="zbtn" data-n="40">40根</button>
+      <button class="zbtn on" data-n="70">70根</button>
+      <button class="zbtn" data-n="110">110根</button>
+    </div>
+    <div class="poschip" id="posChip">持仓中</div>
+    <div id="chart"></div>
+  </div>
+
+  <div class="side">
+    <div class="actions">
+      <button class="act buy"  id="btnBuy">买<span class="k">B</span></button>
+      <button class="act sell" id="btnSell">卖<span class="k">S</span></button>
+      <button class="act pass" id="btnPass">过 · 看下一天<span class="k">空格</span></button>
+    </div>
+
+    <div class="log">
+      <div class="h">操作记录</div>
+      <div class="body" id="logBody"><div class="empty">还没有操作。点「买」建仓，点「过」看下一天。</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 开始页 -->
+<div class="overlay on" id="ovStart">
+  <div class="pop">
+    <div class="startlogo"><div class="em">📉📈</div></div>
+    <h2>盘感训练器</h2>
+    <div class="sub">真实A股日K · 你只能做三个动作</div>
+    <div class="rules">
+      <b>怎么玩</b><br>
+      · 系统随机抽一只 <span class="em">真实A股</span> 的历史行情，<b>隐藏名称和代码</b>，只给你看K线<br>
+      · 每个交易日你只能做一个决定：<span class="em">买</span>（全仓买入）、<span class="em">卖</span>（清仓卖出）、<span class="em">过</span>（什么都不做，进入下一天）<br>
+      · 无杠杆、无加仓、无做T — <b>一次只持一个仓位，全进全出</b><br><br>
+      <b>关键：不许偷看未来</b><br>
+      · 你只能看到<b>今天及之前</b>的K线。图右边没有藏着答案<br>
+      · 每点一次「过」才揭开一根新的K线<br>
+      · 图左下角可切换 <b>显示 40 / 70 / 110 根</b>K线 —— 想看清形态就用 40 根，想看更长的趋势用 110 根<br><br>
+      <b>怎么算分（不看运气，看决策）</b><br>
+      · 每笔交易会算：买点是否买在低位区、持仓期间最大浮亏扛了多少、卖点是否逃离了顶部<br>
+      · 最后和<b>「买入后一直拿到最后」</b>这个基准比 — 看你择时到底有没有创造超额
+    </div>
+    <div class="btnrow">
+      <button class="btn pri" id="btnStart">开始训练</button>
+      <button class="btn sec" id="btnHowto">详细说明</button>
+    </div>
+    <div class="disc">本游戏仅用于训练盘感与决策纪律，不构成任何投资建议。历史行情不代表未来表现，市场有风险，投资须谨慎。</div>
+  </div>
+</div>
+
+<!-- 复盘页 -->
+<div class="overlay" id="ovReview">
+  <div class="pop" id="reviewPop"></div>
+</div>
+
+<!-- 说明页 -->
+<div class="overlay" id="ovHelp">
+  <div class="pop">
+    <h2>规则与算法说明</h2>
+    <div class="sub">这个游戏是怎么算分的</div>
+
+    <h3>① 数据是真实的</h3>
+    <div class="note">全部K线来自真实A股日线数据（2025-09 至 2026-09），共 27 只不同板块、不同股性的标的。每次开局随机抽一只、随机切一段作为起点，所以同一局不会重复。</div>
+
+    <h3>② 三个动作，单一仓位</h3>
+    <div class="note">
+      <b>买</b>：用全部现金按<b>当日收盘价</b>买入。<br>
+      <b>卖</b>：按<b>当日收盘价</b>全部卖出。<br>
+      <b>过</b>：不操作，进入下一个交易日。<br>
+      不允许部分仓位、不允许加仓、不允许做T。这是刻意设计的约束——<b>它逼你把注意力放在「该不该动手」而不是「怎么调仓」上</b>。
+    </div>
+
+    <h3>②·5 关于K线显示多少根</h3>
+    <div class="note">
+      真实看盘时，如果屏幕里塞几百根K线，每根都会被压成一条线，根本看不出形态。<br>
+      所以这个游戏采用<b>滑动窗口</b>：始终只显示<b>最近 N 根</b>K线，老的自然向左滚出视野。<br>
+      <b>好处是——无论你打到第几天，单根K线的宽度都完全一样</b>，形态永远清晰。左上角的日期让你随时知道自己在哪一天。<br>
+      左下角可切换 40 / 70 / 110 根：<b>40 根</b>看得最清楚（适合看单根形态），<b>110 根</b>能看更长趋势（适合看均线关系）。
+    </div>
+
+    <h3>③ 买点评分（0-100）：买在了什么位置</h3>
+    <div class="note">对买入日之后的<b>未来 20 个交易日</b>，取这段区间的最高价和最低价。<br>
+      你的买价越接近区间最低价，得分越高；越接近最高价，得分越低。<br>
+      <b>公式</b>：买点分 = 100 × (最高价 − 买价) ÷ (最高价 − 最低价)<br>
+      <span style="color:var(--gold)">注意：这个分数<b>必须用到未来数据</b>才能算——但它不参与游戏进程，只在复盘时给你看。游戏当下你完全看不到。</span>
+    </div>
+
+    <h3>④ 持仓煎熬度：你扛了多少浮亏</h3>
+    <div class="note">记录持仓期间最难看的那一刻：从你的买价算，<b>最大浮亏</b>是多少。<br>
+      浮亏越浅说明你买得越稳；浮亏越深说明你在扛——哪怕最后赚了钱，扛 −15% 才赚到 +2% 也不是好交易。
+    </div>
+
+    <h3>⑤ 卖点评分（0-100）：跑得及不及时</h3>
+    <div class="note">对卖出日之后的<b>未来 20 个交易日</b>，看你卖完之后价格是继续涨（卖早了）还是跌了（卖对了）。<br>
+      卖完之后价格下跌 → 得分高（你跑对了）；继续上涨 → 得分低（你跑早了）。
+    </div>
+
+    <h3>⑥ 核心指标：择时超额</h3>
+    <div class="note">这个游戏<b>不看你赚了多少钱</b>，因为赚钱可能只是运气（抽到一只全年上涨的票，躺着不动也赚）。<br>
+      真正的指标是：<b>你的操作收益 − 买入后一直持有到最后的收益 = 择时超额</b>。<br>
+      · 超额 &gt; 0 → 你的买卖点判断真的创造了价值<br>
+      · 超额 ≈ 0 → 你的操作没比躺着不动更好，白忙<br>
+      · 超额 &lt; 0 → 你的操作<b>反而害了你</b>，不如什么都不做
+    </div>
+
+    <h3>⑦ 为什么不给你看股票名字</h3>
+    <div class="note">一旦你知道这是茅台还是某只妖股，你会用「对它的一贯印象」来判断，而不是用K线本身。隐藏身份才能训练<b>纯粹的价格感知</b>。复盘时才会告诉你这是什么票、后续真实走势如何。</div>
+
+    <div class="btnrow"><button class="btn pri" id="btnHelpClose">知道了</button></div>
+  </div>
+</div>
+
+<script src="game-data.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ============ 常量 ============ */
+var START_CASH   = 100000;   // 起始资金
+var WARMUP       = 60;       // 开局先显示的历史K线根数（保证有足够形态上下文）
+var LOOKAHEAD    = 20;       // 评分回看窗口（交易日）
+var MIN_TAIL     = 15;       // 游戏至少留多少根未来K线
+
+/* ============ 状态 ============ */
+var S = {
+  stock:null, bars:[], idx:0, endIdx:0,
+  cash:START_CASH, shares:0, entryPrice:0, entryIdx:0,
+  maxFav:0, maxAdv:0,          // 持仓期间最大浮盈/浮亏（相对买入价）
+  trades:[], log:[],
+  done:false
+};
+
+/* ============ DOM ============ */
+var $ = function(id){ return document.getElementById(id); };
+var chart = null;
+
+/* ============ 工具 ============ */
+function fmt(n, d){ d = (d===undefined?2:d); return Number(n).toFixed(d); }
+function money(n){ return n.toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function pct(n){ return (n>=0?'+':'') + n.toFixed(2) + '%'; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+function rnd(n){ return Math.floor(Math.random()*n); }
+
+/* ---- 生成一个随机但稳定的「假代码」，防止玩家猜出真身 ---- */
+function fakeCode(){
+  var letters = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+  var s = 'SIM-';
+  for(var i=0;i<4;i++) s += letters[rnd(letters.length)];
+  return s;
+}
+
+/* ============ 开局 ============ */
+function newGame(){
+  var pool = window.GAME_DATA.stocks;
+  var st = pool[rnd(pool.length)];
+  S.stock = st;
+  S.bars  = st.b;
+  S.idx   = WARMUP;                                   // 从第 WARMUP 根开始做决策
+  // 随机决定这一局的长度（给玩家不同的持有时长体验）
+  var maxEnd = S.bars.length - MIN_TAIL;
+  var span   = 45 + rnd(70);                          // 45~114 个交易日
+  S.endIdx   = Math.min(maxEnd, S.idx + span);
+  if(S.endIdx <= S.idx + 20) S.endIdx = Math.min(maxEnd, S.idx + 45);
+
+  S.cash = START_CASH; S.shares = 0; S.entryPrice = 0; S.entryIdx = 0;
+  S.maxFav = 0; S.maxAdv = 0; S.trades = []; S.log = []; S.done = false;
+  S._saved = false;
+  S.fake = fakeCode();
+
+  $('bSector').textContent = '· ' + st.k;
+  render(); renderLog(); renderStats();
+}
+
+/* ============ 渲染图表 ============ */
+/*
+ * 关键设计：滑动窗口（sliding window）
+ * 不能把「从开局到当前」的所有K线都塞进图里 —— 那样每根K线会随进度增加被越压越窄，
+ * 到后期糊成一片，根本看不出形态。
+ * 正确做法与真实看盘软件一致：只显示「最近 N 根」K线，老的自然向左滚出视野。
+ * 这样无论打到第几天，单根K线宽度恒定、形态始终清晰。
+ */
+var VISIBLE_BARS = 70;      // 视窗内显示的K线根数（保证单根宽度足够看形态）
+function render(){
+  var all = S.bars.slice(0, S.idx+1);                  // 只取到当前日 —— 无未来函数
+  // 取最近 VISIBLE_BARS 根进入视窗（不够则全取）
+  var start = Math.max(0, all.length - VISIBLE_BARS);
+  var bars  = all.slice(start);
+
+  var dates = bars.map(function(b){ return b[0]; });
+  var ohlc  = bars.map(function(b){ return [b[1], b[4], b[3], b[2]]; }); // [open, close, low, high]
+
+  // MA 必须用「全量历史」计算，再切窗口，否则窗口左边缘的均线会算错
+  var ma5All = [], ma20All = [];
+  for(var i=0;i<all.length;i++){
+    if(i>=4){ var s5=0; for(var j=i-4;j<=i;j++) s5+=all[j][4]; ma5All.push(+(s5/5).toFixed(2)); } else ma5All.push('-');
+    if(i>=19){ var s20=0; for(var k=i-19;k<=i;k++) s20+=all[k][4]; ma20All.push(+(s20/20).toFixed(2)); } else ma20All.push('-');
+  }
+  var ma5  = ma5All.slice(start);
+  var ma20 = ma20All.slice(start);
+
+  // 买卖标记：只保留落在视窗内的
+  var markPts = [];
+  S.trades.forEach(function(t){
+    if(t.entryIdx >= start && t.entryIdx <= S.idx)
+      markPts.push({name:'B',coord:[dates[t.entryIdx-start], bars[t.entryIdx-start][4]],
+        itemStyle:{color:'#f04a42'}});
+    if(t.exitIdx !== null && t.exitIdx >= start && t.exitIdx <= S.idx)
+      markPts.push({name:'S',coord:[dates[t.exitIdx-start], bars[t.exitIdx-start][4]],
+        itemStyle:{color:'#22b573'}});
+  });
+  if(S.shares > 0 && S.entryIdx >= start){
+    markPts.push({name:'持',coord:[dates[S.entryIdx-start], bars[S.entryIdx-start][4]],
+      itemStyle:{color:'#3d8bfd'}, symbol:'pin', symbolSize:34});
+  }
+
+  // 成交流程阴影：只画与视窗相交的部分
+  var areaData = [];
+  if(S.shares > 0){
+    var a = Math.max(S.entryIdx, start), b = S.idx;
+    if(b >= start){
+      areaData = [[{xAxis:dates[a-start]},{xAxis:dates[b-start]}]];
+    }
+  }
+
+  // 成交量子图：按涨跌着色
+  var volData = bars.map(function(b){
+    return { value: b[5], itemStyle:{ color: b[4]>=b[1] ? 'rgba(240,74,66,.55)' : 'rgba(34,181,115,.55)' } };
+  });
+
+  // 按视口宽度自适应字号与边距（大屏给更大的字体和更宽的轴区）
+  var vw = Math.max(window.innerWidth || 1200, 360);
+  var fs = vw > 1200 ? 12 : (vw > 900 ? 11 : 10);
+  var gridL = vw > 900 ? 14 : 6;
+  var gridR = vw > 900 ? 74 : 52;
+
+  var opt = {
+    animation:false,
+    backgroundColor:'transparent',
+    tooltip:{ trigger:'axis', axisPointer:{type:'cross'},
+      backgroundColor:'rgba(23,26,33,.96)', borderColor:'#2a2f3a',
+      textStyle:{color:'#e8ebf0',fontSize:fs+1} },
+    axisPointer:{ link:[{xAxisIndex:'all'}] },
+    legend:{ data:['日K','MA5','MA20'], top:6, right:gridR, itemWidth:16, itemHeight:9,
+      textStyle:{color:'#8a92a3',fontSize:fs} },
+    grid:[
+      { left:gridL, right:gridR, top:'8%',  height:'62%', containLabel:false },
+      { left:gridL, right:gridR, top:'76%', height:'15%', containLabel:false }
+    ],
+    xAxis:[
+      { type:'category', data:dates, gridIndex:0, boundaryGap:true,
+        axisLine:{lineStyle:{color:'#2a2f3a'}},
+        axisLabel:{ show:false }, axisTick:{show:false},
+        splitLine:{show:false} },
+      { type:'category', data:dates, gridIndex:1, boundaryGap:true,
+        axisLine:{lineStyle:{color:'#2a2f3a'}},
+        axisLabel:{ color:'#6b7484', fontSize:fs, showMaxLabel:true,
+          formatter:function(v){ return v.slice(2); } },
+        axisTick:{show:false} }
+    ],
+    yAxis:[
+      { scale:true, position:'right', gridIndex:0,
+        axisLine:{show:false}, axisTick:{show:false},
+        splitLine:{lineStyle:{color:'#20242d'}},
+        axisLabel:{color:'#8a92a3', fontSize:fs,
+          formatter:function(v){ return v>=100?v.toFixed(0):v.toFixed(2); }} },
+      { scale:true, position:'right', gridIndex:1, splitNumber:2,
+        axisLine:{show:false}, axisTick:{show:false},
+        splitLine:{show:false},
+        axisLabel:{color:'#6b7484', fontSize:fs-1,
+          formatter:function(v){ return v>=10000 ? (v/10000).toFixed(0)+'万' : (v>=1000?(v/1000).toFixed(0)+'千':v); }} }
+    ],
+    dataZoom:[
+      { type:'inside', xAxisIndex:[0,1], start:0, end:100,
+        zoomOnMouseWheel:true, moveOnMouseMove:false, moveOnMouseWheel:false }
+    ],
+    series:[
+      { name:'日K', type:'candlestick', data:ohlc, xAxisIndex:0, yAxisIndex:0,
+        barWidth:'62%',                       // 固定宽度占比：K线永远保持清晰形态
+        itemStyle:{ color:'#f04a42', color0:'#22b573', borderColor:'#f04a42', borderColor0:'#22b573' },
+        markPoint:{ data:markPts, symbolSize: vw>900?32:26,
+          label:{fontSize: vw>900?12:10, fontWeight:'bold', color:'#fff'},
+          itemStyle:{borderColor:'#0f1115',borderWidth:1.5} },
+        markArea:{ silent:true, itemStyle:{color:'rgba(61,139,253,.06)'},
+          data: areaData }
+      },
+      { name:'MA5',  type:'line', data:ma5,  symbol:'none', smooth:true, xAxisIndex:0, yAxisIndex:0,
+        lineStyle:{width:1.4,color:'#e8b339',opacity:.95} },
+      { name:'MA20', type:'line', data:ma20, symbol:'none', smooth:true, xAxisIndex:0, yAxisIndex:0,
+        lineStyle:{width:1.4,color:'#8a7df0',opacity:.95} },
+      { name:'成交量', type:'bar', data:volData, xAxisIndex:1, yAxisIndex:1, barWidth:'62%' }
+    ]
+  };
+  if(!chart){ chart = echarts.init($('chart')); }
+  chart.setOption(opt, true);
+}
+
+/* ============ 渲染状态条 ============ */
+function renderStats(){
+  var px = S.bars[S.idx][4];
+  var holdVal = S.shares * px;
+  var equity  = S.cash + holdVal;
+  var pnlPct  = (equity - START_CASH) / START_CASH * 100;
+
+  $('sEquity').textContent = money(equity);
+  $('sEquity').className = 'v ' + (pnlPct>0.01?'up':(pnlPct<-0.01?'down':'flat'));
+  $('sPnl').textContent = pct(pnlPct);
+  $('sPnl').style.color = pnlPct>0.01?'var(--red)':(pnlPct<-0.01?'var(--green)':'var(--ink3)');
+
+  if(S.shares > 0){
+    var posPnl = (px - S.entryPrice)/S.entryPrice*100;
+    $('sPos').textContent = '满仓';
+    $('sPos').className = 'v ' + (posPnl>0?'up':'down');
+    $('sPosPnl').textContent = pct(posPnl);
+    $('sPosPnl').style.color = posPnl>0?'var(--red)':(posPnl<0?'var(--green)':'var(--ink3)');
+    $('posChip').classList.add('on');
+    $('posChip').textContent = '持仓 ' + pct(posPnl);
+    $('posChip').style.background = posPnl>=0 ? 'var(--red)' : 'var(--green)';
+  }else{
+    $('sPos').textContent = '空仓';
+    $('sPos').className = 'v flat';
+    $('sPosPnl').textContent = '—';
+    $('posChip').classList.remove('on');
+  }
+
+  $('sDay').textContent = (S.idx - WARMUP + 1) + ' / ' + (S.endIdx - WARMUP + 1);
+  $('sDate').textContent = S.bars[S.idx][0];
+  $('sTrade').textContent = S.trades.length + ' 笔';
+  var closed = S.trades.filter(function(t){ return t.exitIdx!==null; });
+  if(closed.length){
+    var w = closed.filter(function(t){ return t.ret>0; }).length;
+    $('sWin').textContent = '胜 ' + w + '/' + closed.length + ' (' + Math.round(w/closed.length*100) + '%)';
+  }else $('sWin').textContent = '—';
+
+  $('bCode').textContent = S.fake;
+  $('bDate').textContent = S.bars[S.idx][0];
+
+  // 按钮可用性：未持仓才能买；持仓才能卖
+  $('btnBuy').disabled  = S.shares > 0 || S.done;
+  $('btnSell').disabled = S.shares === 0 || S.done;
+  $('btnPass').disabled = S.done;
+}
+
+/* ============ 日志 ============ */
+function renderLog(){
+  var box = $('logBody');
+  if(!S.log.length){ box.innerHTML = '<div class="empty">还没有操作。点「买」建仓，点「过」看下一天。</div>'; return; }
+  var html = '';
+  S.log.slice().reverse().forEach(function(r){
+    var cls = '';
+    if(r.pnl !== undefined) cls = r.pnl>=0 ? 'style="color:var(--red)"' : 'style="color:var(--green)"';
+    html += '<div class="row"><span class="a">'+ r.d +' &nbsp;'+ r.a +'</span>'+
+            '<span class="p" '+cls+'>'+ r.p +'</span></div>';
+  });
+  box.innerHTML = html;
+}
+function addLog(date, action, price){
+  S.log.push({d:date, a:action, p:price});
+  renderLog();
+}
+
+/* ============ 动作 ============ */
+function doBuy(){
+  if(S.shares > 0 || S.done) return;
+  var px = S.bars[S.idx][4];
+  S.shares = +(S.cash / px).toFixed(4);
+  S.entryPrice = px;
+  S.entryIdx = S.idx;
+  S.cash = 0;
+  S.maxFav = 0; S.maxAdv = 0;
+  S.trades.push({ entryIdx:S.idx, entryPrice:px, exitIdx:null, exitPrice:null, ret:null, maxFav:0, maxAdv:0 });
+  addLog(S.bars[S.idx][0], '买入 @', fmt(px));
+  render(); renderStats();
+  nextDay();
+}
+
+function doSell(){
+  if(S.shares === 0 || S.done) return;
+  var px = S.bars[S.idx][4];
+  S.cash = S.shares * px;
+  var ret = (px - S.entryPrice)/S.entryPrice*100;
+  var t = S.trades[S.trades.length-1];
+  t.exitIdx = S.idx; t.exitPrice = px; t.ret = ret;
+  t.maxFav = S.maxFav; t.maxAdv = S.maxAdv;
+  addLog(S.bars[S.idx][0], '卖出 @', fmt(px) + '  (' + pct(ret) + ')');
+  S.shares = 0; S.entryPrice = 0;
+  render(); renderStats();
+  nextDay();
+}
+
+function doPass(){
+  if(S.done) return;
+  addLog(S.bars[S.idx][0], '观望', '—');
+  nextDay();
+}
+
+function nextDay(){
+  // 推进到下一交易日；若到局末则结算
+  if(S.idx >= S.endIdx){
+    finish(false);
+    return;
+  }
+  S.idx++;
+  // 若还在持仓，更新持仓期间的浮盈/浮亏极值
+  if(S.shares > 0){
+    var b = S.bars[S.idx];
+    var fav = (b[2] - S.entryPrice)/S.entryPrice*100;   // 最高价带来的最大浮盈
+    var adv = (b[3] - S.entryPrice)/S.entryPrice*100;   // 最低价带来的最大浮亏
+    if(fav > S.maxFav) S.maxFav = fav;
+    if(adv < S.maxAdv) S.maxAdv = adv;
+    S.trades[S.trades.length-1].maxFav = S.maxFav;
+    S.trades[S.trades.length-1].maxAdv = S.maxAdv;
+  }
+  render(); renderStats();
+  if(S.idx >= S.endIdx) finish(false);
+}
+
+/* ============ 评分 ============ */
+/* 买点评分：买价在「买入日后 20 日」区间的分位（0=买在最高，100=买在最低） */
+function scoreEntry(t){
+  var s = t.entryIdx, e = Math.min(S.bars.length-1, s + LOOKAHEAD);
+  var hi = -Infinity, lo = Infinity;
+  for(var i=s+1;i<=e;i++){ if(S.bars[i][2]>hi)hi=S.bars[i][2]; if(S.bars[i][3]<lo)lo=S.bars[i][3]; }
+  if(hi===lo) return 50;
+  var sc = (hi - t.entryPrice)/(hi-lo)*100;
+  return clamp(sc, 0, 100);
+}
+/* 卖点评分：卖后 20 日的回落程度（回落越多=卖得越对=分越高） */
+function scoreExit(t){
+  if(t.exitIdx===null) return null;
+  var s = t.exitIdx, e = Math.min(S.bars.length-1, s + LOOKAHEAD);
+  if(e <= s) return null;                                  // 到数据尾，无法评价
+  var hi = -Infinity, lo = Infinity;
+  for(var i=s+1;i<=e;i++){ if(S.bars[i][2]>hi)hi=S.bars[i][2]; if(S.bars[i][3]<lo)lo=S.bars[i][3]; }
+  if(hi===lo) return 50;
+  var sc = (t.exitPrice - lo)/(hi-lo)*100;                 // 卖价在上沿=卖早了=分低
+  return clamp(100-sc, 0, 100);
+}
+/* 持仓煎熬度 -> 分数（0浮亏=100，-20%浮亏=0） */
+function scoreComfort(t){
+  var adv = t.maxAdv || 0;                                  // <=0
+  var sc = 100 + adv*5;                                     // -20% -> 0
+  return clamp(sc, 0, 100);
+}
+
+/* ============ 结算 ============ */
+function finish(quit){
+  S.done = true;
+  // 结束时若还持仓，按最后一日收盘价强制平仓
+  if(S.shares > 0){
+    var px = S.bars[S.idx][4];
+    S.cash = S.shares * px;
+    var t = S.trades[S.trades.length-1];
+    t.exitIdx = S.idx; t.exitPrice = px; t.ret = (px - t.entryPrice)/t.entryPrice*100;
+    S.shares = 0;
+  }
+  render(); renderStats();
+
+  var equity = S.cash;
+  var ret = (equity - START_CASH)/START_CASH*100;
+
+  // ---- 基准口径（关键）----
+  // 基准1「躺平基准」：开局第一天买入，一直拿到最后一天。用于对比"择时 vs 不动"。
+  var baseStart = S.bars[WARMUP][4], baseEnd = S.bars[S.idx][4];
+  var baseRet = (baseEnd - baseStart)/baseStart*100;
+
+  // 基准2「暴露匹配基准」：按你实际的持仓天数占比，折算出的"同等暴露下的躺赢基准"。
+  // 逻辑：你只有 x% 的时间在场内，那就只该拿 x% 的躺平收益。空仓的时间收益算 0。
+  // 这样"少动手"本身不会被误判成择时能力——空仓赚的钱不算本事。
+  var totalDays = S.idx - WARMUP + 1;
+  var holdDays = 0;
+  S.trades.forEach(function(t){
+    var end = (t.exitIdx !== null) ? t.exitIdx : S.idx;
+    holdDays += (end - t.entryIdx);
+  });
+  var exposure = totalDays > 0 ? clamp(holdDays / totalDays, 0, 1) : 0;
+  var baseMatch = baseRet * exposure;
+
+  // 择时超额 = 你的操作收益 − 同等暴露下的躺平收益
+  var alpha    = ret - baseMatch;
+  // 暴露差：你比"一直满仓"少承担了多少市场暴露（也算一种择时结果，但单列）
+  var exposureGap = ret - baseRet;
+
+  // 逐笔评分
+  var entries=[], exits=[], comforts=[];
+  S.trades.forEach(function(t){
+    entries.push(scoreEntry(t));
+    var es = scoreExit(t); if(es!==null) exits.push(es);
+    comforts.push(scoreComfort(t));
+  });
+  var avg = function(a){ return a.length ? a.reduce(function(x,y){return x+y;},0)/a.length : 0; };
+  var sEntry = avg(entries), sExit = avg(exits), sComfort = avg(comforts);
+
+  // 出场时点分（没交易=0，交易少则权重低）—— 用「是否有效择时」作为主分
+  var timing = clamp(
+      0.40*sEntry + 0.30*sComfort + 0.30*(exits.length?sExit:50), 0, 100);
+
+  var closed = S.trades.filter(function(t){ return t.exitIdx!==null; });
+  var wins = closed.filter(function(t){ return t.ret>0; }).length;
+  var winRate = closed.length ? wins/closed.length*100 : 0;
+  var avgRet = closed.length ? closed.reduce(function(a,t){return a+t.ret;},0)/closed.length : 0;
+
+  showReview({ret:ret, equity:equity, baseRet:baseRet, baseMatch:baseMatch,
+    exposure:exposure*100, exposureGap:exposureGap, alpha:alpha,
+    sEntry:sEntry, sExit:sExit, sComfort:sComfort, timing:timing,
+    winRate:winRate, avgRet:avgRet, n:closed.length, quit:quit});
+}
+
+/* ============ 复盘渲染 ============ */
+function showReview(r){
+  var grade, gcls, gtext;
+  if(r.alpha > 3)       { grade='S'; gcls='good'; gtext='择时创造了真实超额 — 买卖点判断有价值'; }
+  else if(r.alpha > 0.5){ grade='A'; gcls='good'; gtext='择时略有正贡献，方向对了'; }
+  else if(r.alpha > -0.5){grade='B'; gcls='mid';  gtext='择时基本无效 — 你的操作没比躺着更好'; }
+  else if(r.alpha > -3) { grade='C'; gcls='bad';  gtext='择时反而拖累了收益'; }
+  else                  { grade='D'; gcls='bad';  gtext='频繁操作严重损害了收益 — 不如什么都不做'; }
+
+  var side = r.ret>=0 ? 'var(--red)' : 'var(--green)';
+  var nTrades = S.trades.length;
+
+  // 评级说明用一句话点破关键
+  var keyHint = '';
+  if(nTrades === 0){
+    keyHint = '你一次都没出手。观望不是错，但这个游戏的目的就是逼你<b>在不确定中做决定</b> — 不决定也是决定，只是学不到东西。';
+  }else if(r.alpha < -0.5){
+    keyHint = '注意：你的操作收益是 ' + pct(r.ret) + '，但如果你什么都不做（同等暴露下）本该拿到 ' + pct(r.baseMatch) + '。<b>这中间的差距就是你自己的择时造成的损耗。</b>';
+  }else if(r.alpha > 0.5){
+    keyHint = '同样暴露下躺着不动只能拿 ' + pct(r.baseMatch) + '，你拿到了 ' + pct(r.ret) + '。<b>多出来的部分才是真本事。</b>';
+  }else{
+    keyHint = '你的操作收益和「同等暴露下躺着不动」基本一致 — 说明<b>你的买卖点判断没有创造额外价值</b>，动手和不动手结果差不多。';
+  }
+
+  var rows = '';
+  if(S.trades.length){
+    S.trades.forEach(function(t,i){
+      var es = scoreEntry(t).toFixed(0);
+      var xs = scoreExit(t);
+      rows += '<tr>'+
+        '<td>第 '+(i+1)+' 笔</td>'+
+        '<td>'+S.bars[t.entryIdx][0].slice(5)+'</td>'+
+        '<td>'+fmt(t.entryPrice)+'</td>'+
+        '<td>'+(t.exitIdx!==null? fmt(t.exitPrice):'—')+'</td>'+
+        '<td style="color:'+(t.ret>=0?'var(--red)':'var(--green)')+'">'+
+          (t.ret!==null?pct(t.ret):'—')+'</td>'+
+        '<td>'+(t.maxAdv?fmt(t.maxAdv)+'%':'—')+'</td>'+
+        '<td>'+es+'</td>'+
+        '<td>'+(xs!==null?xs.toFixed(0):'—')+'</td>'+
+        '</tr>';
+    });
+  }else{
+    rows = '<tr><td colspan="8" style="text-align:center;color:var(--ink3)">你全程没有出手 — 一次都没买过</td></tr>';
+  }
+
+  // ---- 累计统计（跨局）----
+  // 注意：必须先写入本局记录，再读取历史，否则本局不会出现在累计里。
+  // 用 S._saved 防止「返回评分」重新进入时重复写入同一局。
+  if(!S._saved){ saveCum(r); S._saved = true; }
+  var cum = loadCum();
+  var hist = cum.history || [];
+  var histHtml = '';
+  if(hist.length){
+    var alphas = hist.map(function(h){ return h.a; });
+    var meanA = alphas.reduce(function(x,y){return x+y;},0)/alphas.length;
+    var posN  = alphas.filter(function(a){ return a>0; }).length;
+    var mTim  = hist.map(function(h){ return h.t; }).reduce(function(x,y){return x+y;},0)/hist.length;
+    var last10 = hist.slice(-10);
+    var spark = last10.map(function(h){
+      var c = h.a>=0 ? 'var(--red)' : 'var(--green)';
+      var hh = clamp(Math.abs(h.a)*4, 3, 26);
+      return '<span style="display:inline-block;width:9px;height:'+hh+'px;background:'+c+
+             ';margin-right:2px;border-radius:1px;vertical-align:bottom"></span>';
+    }).join('');
+    histHtml =
+      '<h3>累计战绩（'+hist.length+' 局）</h3>'+
+      '<div class="scorecard">'+
+        '<div class="sc"><div class="l">平均择时超额</div><div class="v" style="color:'+
+          (meanA>=0?'var(--red)':'var(--green)')+'">'+pct(meanA)+'</div></div>'+
+        '<div class="sc"><div class="l">正超额局数占比</div><div class="v">'+
+          Math.round(posN/alphas.length*100)+'%</div></div>'+
+        '<div class="sc"><div class="l">平均择时分</div><div class="v">'+mTim.toFixed(1)+'</div></div>'+
+        '<div class="sc"><div class="l">平均出手</div><div class="v">'+
+          (hist.reduce(function(x,h){return x+h.n;},0)/hist.length).toFixed(1)+' 笔</div></div>'+
+      '</div>'+
+      '<div class="note">最近 10 局择时超额（红=正/绿=负）：<br>'+spark+'</div>'+
+      '<div class="note">'+
+        (hist.length < 10
+          ? '<b style="color:var(--gold)">只打了 '+hist.length+' 局，样本太少。</b>盘感这个东西单局全看运气 — 至少要 20 局以上，平均超额才有参考价值。'
+          : (meanA > 0.5
+              ? '打了 '+hist.length+' 局，平均择时超额 <b style="color:var(--red)">'+pct(meanA)+'</b>，且 '+Math.round(posN/alphas.length*100)+'% 的局是正超额。<b>这个分布说明你的买卖点判断有真实的正向价值。</b>'
+              : '打了 '+hist.length+' 局，平均择时超额 <b style="color:var(--green)">'+pct(meanA)+'</b>。这说明<b>你的操作整体上没有创造价值</b> — 不是运气问题，是判断方式问题。'))
+      +'</div>'+
+      '<div style="text-align:right;margin-top:6px">'+
+        '<button class="iconbtn" id="btnClearCum">清空累计记录</button></div>';
+  }
+
+  var bars = function(label, val, color){
+    return '<div class="bar"><div class="lb"><span class="n">'+label+'</span>'+
+      '<span class="val" style="color:'+(color||'var(--ink)')+'">'+val.toFixed(0)+'</span></div>'+
+      '<div class="track"><div class="fill" style="width:'+clamp(val,0,100)+'%;background:'+(color||'var(--blue)')+'"></div></div></div>';
+  };
+
+  $('reviewPop').innerHTML =
+    '<h2>'+(r.quit?'训练中止 · 结算':'本局结算')+'</h2>'+
+    '<div class="sub">'+ S.stock.n +' · '+ S.stock.k +' · '+ S.bars.length +'根真实日K</div>'+
+
+    '<div class="verdict">'+
+      '<div><span class="big" style="color:'+side+'">'+ pct(r.ret) +'</span>'+
+        '<span class="tag '+gcls+'">评级 '+grade+'</span></div>'+
+      '<div style="color:var(--ink3);font-size:12px;margin-top:5px">'+ gtext +'</div>'+
+      '<div style="margin-top:10px;font-size:12.5px;color:var(--ink2);line-height:1.9">'+
+        '你的操作收益 <b style="color:'+side+'">'+ pct(r.ret) +'</b><br>'+
+        '同等暴露下躺平基准 <b>'+ pct(r.baseMatch) +'</b>（你实际在场内 <b>'+ r.exposure.toFixed(0) +'%</b> 的时间）<br>'+
+        '▶ 择时超额 <b style="font-size:15px;color:'+((r.alpha>=0)?'var(--red)':'var(--green)')+'">'+ pct(r.alpha) +'</b>'+
+      '</div>'+
+    '</div>'+
+
+    '<div class="note" style="margin-top:0">'+ keyHint +'</div>'+
+
+    '<h3>决策质量拆解</h3>'+
+    bars('买点位置（越高越好）', r.sEntry, 'var(--red)')+
+    bars('持仓煎熬度（浮亏越浅越高）', r.sComfort, 'var(--gold)')+
+    bars('卖点时机（跑得越对越高）', r.sExit, 'var(--green)')+
+    '<div class="note">综合择时分 <b style="color:var(--gold);font-size:15px">'+ r.timing.toFixed(0) +' / 100</b>'+
+      '　·　按「买点 40% + 扛亏 30% + 卖点 30%」加权</div>'+
+
+    '<h3>交易明细</h3>'+
+    '<table class="tb"><thead><tr>'+
+      '<th>#</th><th>买入日</th><th>买价</th><th>卖价</th><th>收益</th><th>最大浮亏</th><th>买点分</th><th>卖点分</th>'+
+    '</tr></thead><tbody>'+ rows +'</tbody></table>'+
+
+    (r.n>0 ?
+      '<div class="note">共出手 <b>'+r.n+'</b> 笔，胜率 <b>'+r.winRate.toFixed(0)+'%</b>'+
+      '，平均单笔 <b style="color:'+(r.avgRet>=0?'var(--red)':'var(--green)')+'">'+pct(r.avgRet)+'</b>'+
+      (r.n<5 ? '　<span style="color:var(--gold)">样本太少，统计上说明不了什么</span>' : '') +'</div>'
+      : '')+
+
+    histHtml+
+
+    '<div class="btnrow">'+
+      '<button class="btn pri" id="btnAgain">再来一局</button>'+
+      '<button class="btn sec" id="btnReveal">看看走势</button>'+
+    '</div>'+
+
+    '<div class="disc">数据为真实历史行情，仅用于训练，不构成投资建议。历史不代表未来。'+
+      '累计记录保存在你的浏览器本地，不会上传。</div>';
+
+  $('ovReview').classList.add('on');
+
+  $('btnAgain').onclick = function(){
+    $('ovReview').classList.remove('on');
+    newGame();
+  };
+  $('btnReveal').onclick = revealAll;
+  var bc = $('btnClearCum');
+  if(bc) bc.onclick = function(){
+    if(confirm('确定清空累计战绩记录？这会删除所有历史局数据。')){
+      try{ localStorage.removeItem(CUM_KEY); }catch(e){}
+      $('btnClearCum').textContent = '已清空';
+    }
+  };
+}
+
+/* ============ 累计战绩存储 ============ */
+var CUM_KEY = 'pangan_trainer_cum_v1';
+function loadCum(){
+  try{
+    var s = localStorage.getItem(CUM_KEY);
+    return s ? JSON.parse(s) : {history:[]};
+  }catch(e){ return {history:[]}; }
+}
+function saveCum(r){
+  try{
+    var c = loadCum();
+    c.history = c.history || [];
+    c.history.push({ a:+r.alpha.toFixed(3), t:+r.timing.toFixed(1),
+                     n:r.n, ret:+r.ret.toFixed(2), d:new Date().toISOString().slice(0,10) });
+    if(c.history.length > 200) c.history = c.history.slice(-200);
+    localStorage.setItem(CUM_KEY, JSON.stringify(c));
+  }catch(e){}
+}
+
+/* 揭示全貌：把整只票的真实走势画出来 + 标出你的买卖点 */
+function revealAll(){
+  var bars = S.bars;
+  var dates = bars.map(function(b){ return b[0]; });
+  var ohlc  = bars.map(function(b){ return [b[1], b[4], b[3], b[2]]; });
+  var markPts = [];
+  S.trades.forEach(function(t){
+    markPts.push({name:'B',coord:[dates[t.entryIdx], bars[t.entryIdx][4]],itemStyle:{color:'#f04a42'},symbolSize:30});
+    if(t.exitIdx!==null) markPts.push({name:'S',coord:[dates[t.exitIdx], bars[t.exitIdx][4]],itemStyle:{color:'#22b573'},symbolSize:30});
+  });
+
+  $('reviewPop').innerHTML =
+    '<h2>走势全貌</h2>'+
+    '<div class="sub">'+ S.stock.n +'（'+ S.stock.s +'）· '+ S.stock.k +'<br>'+
+      bars[0][0] +' 至 '+ bars[bars.length-1][0] +' · 共 '+ bars.length +' 根日K</div>'+
+    '<div id="rvChart" style="width:100%;height:min(56vh,460px);margin:12px 0"></div>'+
+    '<div class="note">图中 <b style="color:var(--red)">B</b> 是你买入的点，<b style="color:var(--green)">S</b> 是你卖出的点。'+
+      '蓝色阴影区间是你实际持仓的时间段。<br>'+
+      '现在你可以完整地看到：<b>你买进之后它到底怎么走的、你卖完之后它又走了多远。</b></div>'+
+    '<div class="btnrow">'+
+      '<button class="btn pri" id="btnAgain2">再来一局</button>'+
+      '<button class="btn sec" id="btnBack">返回评分</button>'+
+    '</div>'+
+    '<div class="disc">数据为真实历史行情，仅用于训练。历史不代表未来表现。</div>';
+
+  var c = echarts.init($('rvChart'));
+  c.setOption({
+    animation:false, backgroundColor:'transparent',
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'},
+      backgroundColor:'rgba(23,26,33,.95)',borderColor:'#2a2f3a',textStyle:{color:'#e8ebf0',fontSize:12}},
+    grid:{left:8,right:52,top:16,bottom:30,containLabel:false},
+    xAxis:{type:'category',data:dates,axisLine:{lineStyle:{color:'#2a2f3a'}},
+      axisLabel:{color:'#6b7484',fontSize:10,formatter:function(v){return v.slice(2,7);}},axisTick:{show:false}},
+    yAxis:{scale:true,position:'right',axisLine:{show:false},axisTick:{show:false},
+      splitLine:{lineStyle:{color:'#20242d'}},axisLabel:{color:'#6b7484',fontSize:10}},
+    series:[{ type:'candlestick', data:ohlc,
+      itemStyle:{color:'#f04a42',color0:'#22b573',borderColor:'#f04a42',borderColor0:'#22b573'},
+      markPoint:{data:markPts,symbolSize:28,label:{fontSize:11,fontWeight:'bold',color:'#fff'},
+        itemStyle:{borderColor:'#0f1115',borderWidth:1.5}},
+      markArea:{silent:true,itemStyle:{color:'rgba(61,139,253,.07)'},
+        data:S.trades.filter(function(t){return t.exitIdx!==null;}).map(function(t){
+          return [{xAxis:dates[t.entryIdx]},{xAxis:dates[t.exitIdx]}];
+        })} }]
+  });
+  $('btnAgain2').onclick = function(){ $('ovReview').classList.remove('on'); newGame(); };
+  $('btnBack').onclick = function(){ finish(true); };
+}
+
+/* ============ 事件绑定 ============ */
+$('btnBuy').onclick  = doBuy;
+$('btnSell').onclick = doSell;
+$('btnPass').onclick = doPass;
+$('btnQuit').onclick = function(){ if(!S.done) finish(true); };
+$('btnStart').onclick = function(){ $('ovStart').classList.remove('on'); newGame(); };
+$('btnHowto').onclick = function(){ $('ovHelp').classList.add('on'); };
+$('btnHelp').onclick  = function(){ $('ovHelp').classList.add('on'); };
+$('btnHelpClose').onclick = function(){ $('ovHelp').classList.remove('on'); };
+
+// 视窗根数切换：改变显示多少根K线（越少单根越宽，形态越清晰）
+document.querySelectorAll('.zbtn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    document.querySelectorAll('.zbtn').forEach(function(b){ b.classList.remove('on'); });
+    btn.classList.add('on');
+    VISIBLE_BARS = parseInt(btn.getAttribute('data-n'), 10) || 70;
+    if(S.bars && S.bars.length) render();
+  });
+});
+
+document.addEventListener('keydown', function(e){
+  if($('ovStart').classList.contains('on')) return;
+  if($('ovReview').classList.contains('on')) return;
+  if($('ovHelp').classList.contains('on')) return;
+  if(e.key==='b'||e.key==='B'){ if(!$('btnBuy').disabled) doBuy(); }
+  else if(e.key==='s'||e.key==='S'){ if(!$('btnSell').disabled) doSell(); }
+  else if(e.key===' '){ e.preventDefault(); if(!$('btnPass').disabled) doPass(); }
+});
+
+// 窗口尺寸变化：重新计算字号/边距并重绘（节流，避免拖动窗口时卡顿）
+var _rzTimer = null;
+window.addEventListener('resize', function(){
+  if(_rzTimer) clearTimeout(_rzTimer);
+  _rzTimer = setTimeout(function(){
+    if(chart){ chart.resize(); render(); }
+  }, 160);
+});
+
+})();
+</script>
+</body>
+</html>
