@@ -1,0 +1,31 @@
+# ---- 编辑器 / IDE ----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ---- 操作系统 ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ---- 临时文件 ----
+*.tmp
+*.temp
+*.bak
+*.log
+_tmp_*
+~$*
+
+# ---- Node（若以后引入构建流程）----
+node_modules/
+npm-debug.log*
+yarn-error.log*
+package-lock.json.bak
+
+# ---- 本地个人配置 ----
+*.local
+config.local.*
