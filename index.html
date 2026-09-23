@@ -4,7 +4,55 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>盘感训练器 · 买 / 卖 / 过</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
+<!-- 顶部错误提示条：出任何问题都别让页面白着 -->
+<script>
+window.__errBar = function(text){
+  var el = document.getElementById('bootErr');
+  if(!el){
+    el = document.createElement('div'); el.id = 'bootErr';
+    el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:99999;background:#8c2b25;color:#fff;'+
+      'font:13px/1.7 -apple-system,"Microsoft YaHei",sans-serif;padding:10px 18px;text-align:center;'+
+      'box-shadow:0 2px 12px rgba(0,0,0,.55)';
+    (document.body || document.documentElement).appendChild(el);
+  }
+  el.textContent = '⚠ ' + text;
+};
+window.onerror = function(msg, src, line){
+  if(!msg) return false;   // 资源加载失败不属于脚本错误，交给各自的加载逻辑去提示
+  window.__errBar('脚本出错：' + msg + (src ? '（' + String(src).split('/').pop() + ' 第' + line + '行）' : ''));
+  return false;
+};
+</script>
+
+<!-- 图表库：优先读本地 echarts.min.js（离线也能玩），失败再依次回退 CDN -->
+<script src="echarts.min.js"></script>
+<script>
+window.__ECHARTS = { ok: (typeof echarts !== 'undefined'), fail: false, cbs: [] };
+(function(){
+  if (window.__ECHARTS.ok) return;
+  var CDNS = [
+    'https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js',
+    'https://unpkg.com/echarts@5/dist/echarts.min.js',
+    'https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js'
+  ];
+  var i = 0;
+  function done(ok){
+    window.__ECHARTS.ok = ok; window.__ECHARTS.fail = !ok;
+    var cbs = window.__ECHARTS.cbs; window.__ECHARTS.cbs = [];
+    cbs.forEach(function(f){ f(ok); });
+  }
+  (function next(){
+    if (typeof echarts !== 'undefined') { done(true); return; }
+    if (i >= CDNS.length) { done(false); return; }
+    var s = document.createElement('script');
+    s.src = CDNS[i++];
+    s.onload = next;
+    s.onerror = next;
+    document.head.appendChild(s);
+  })();
+})();
+</script>
 <style>
   :root{
     --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
@@ -89,6 +137,54 @@
     grid-column:span 2;padding:16px 8px;font-size:16px;letter-spacing:.2em;}
   .act:disabled{opacity:.3;box-shadow:none;cursor:not-allowed;}
   .act .k{font-size:11px;font-weight:400;opacity:.75;letter-spacing:0;}
+
+  /* ===== 止损止盈面板 ===== */
+  .exit{margin:0 16px 12px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px 11px;}
+  .exit .h{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12px;color:var(--ink3);letter-spacing:.05em;margin-bottom:8px;}
+  .exit .h b{color:var(--gold);font-variant-numeric:tabular-nums;font-weight:700;}
+  .exit .xr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .exit .cell{display:flex;align-items:center;gap:5px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:7px;padding:4px 8px;}
+  .exit .cl{font-size:12px;color:var(--ink2);}
+  .exit .ci{display:flex;align-items:center;gap:2px;}
+  .exit input[type=number]{width:44px;background:transparent;border:0;color:var(--ink);
+    font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;text-align:right;
+    outline:none;font-family:inherit;padding:0;}
+  .exit input[type=number]::-webkit-inner-spin-button,
+  .exit input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+  .exit input[type=number]{-moz-appearance:textfield;appearance:textfield;}
+  .exit i{font-style:normal;font-size:11px;color:var(--ink3);}
+  .exit .sw{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink2);
+    cursor:pointer;user-select:none;}
+  .exit .sw input{accent-color:var(--blue);margin:0;}
+  .exit .now{margin-top:8px;font-size:12px;color:var(--ink2);line-height:1.6;
+    font-variant-numeric:tabular-nums;}
+  .exit .tip{margin-top:5px;font-size:11px;color:var(--ink3);line-height:1.65;}
+  .exit .tip .hi{color:var(--blue);}
+  .exit.lock .xr{opacity:.45;}                  /* 空仓：整块锁定，买入后才解锁 */
+  .exit.lock .xr input{cursor:not-allowed;}
+
+  /* ===== 图上的止损 / 止盈线（可拖动设置价位） ===== */
+  .exlayer{position:absolute;left:0;top:0;width:0;height:0;z-index:4;
+    pointer-events:none;overflow:hidden;display:none;}
+  .exlayer.on{display:block;}
+  .exline{position:absolute;left:0;right:0;height:17px;margin-top:-8px;
+    pointer-events:auto;cursor:ns-resize;touch-action:none;}
+  .exline .bar{position:absolute;left:0;right:0;top:8px;height:0;
+    border-top:1.6px dashed var(--green);opacity:.85;}
+  .exline.take .bar{border-top-color:var(--red);}
+  .exline.off .bar{border-top-style:dotted;opacity:.4;}
+  .exline .tag{position:absolute;right:4px;top:1px;font-size:11px;line-height:15px;
+    padding:0 6px;border-radius:4px;white-space:nowrap;
+    background:rgba(15,17,21,.88);border:1px solid var(--line);
+    font-variant-numeric:tabular-nums;letter-spacing:.02em;}
+  .exline.stop .tag{color:var(--green);}
+  .exline.take .tag{color:var(--red);}
+  .exline.dragging{opacity:1;}
+  .exline.dragging .bar{opacity:1;}
+  .exline.dragging .tag{border-color:var(--blue);color:var(--blue);}
 
   /* ===== 日志 ===== */
   .log{flex:1;margin:0 16px 16px;background:var(--panel);border:1px solid var(--line);
@@ -217,6 +313,10 @@
     </div>
     <div class="poschip" id="posChip">持仓中</div>
     <div id="chart"></div>
+    <div class="exlayer" id="exLayer">
+      <div class="exline stop" id="exStop"><div class="bar"></div><div class="tag"></div></div>
+      <div class="exline take" id="exTake"><div class="bar"></div><div class="tag"></div></div>
+    </div>
   </div>
 
   <div class="side">
@@ -224,6 +324,21 @@
       <button class="act buy"  id="btnBuy">买<span class="k">B</span></button>
       <button class="act sell" id="btnSell">卖<span class="k">S</span></button>
       <button class="act pass" id="btnPass">过 · 看下一天<span class="k">空格</span></button>
+    </div>
+
+    <div class="exit lock" id="exitPanel">
+      <div class="h">止损 / 止盈纪律<b id="exitRR">2.0 : 1</b></div>
+      <div class="xr">
+        <div class="cell"><span class="cl">止损</span>
+          <span class="ci"><input id="inStop" type="number" min="1" max="50" step="0.5" value="5" disabled><i>%</i></span></div>
+        <div class="cell"><span class="cl">止盈</span>
+          <span class="ci"><input id="inTake" type="number" min="1" max="300" step="0.5" value="10" disabled><i>%</i></span></div>
+        <label class="sw"><input type="checkbox" id="exitOn" checked disabled><span>自动执行</span></label>
+      </div>
+      <div class="now" id="exitNow">空仓 — 买入后才能设置止损 / 止盈</div>
+      <div class="tip">买入后图上会出现两条虚线：<span class="hi">绿色的是止损线、红色的是止盈线，用鼠标（或手指）上下拖动即可改价位</span>。<br>
+        「自动执行」<b>默认关闭</b> —— 线只是纪律参考，到价卖不卖由你自己点「卖」。勾上后才会盘中自动卖出（触及设定价成交，跳空则按开盘价，可能更差）。<br>
+        卖出后线随仓位一起消失，本局的设置会作为下次买入的默认纪律保留。</div>
     </div>
 
     <div class="log">
@@ -243,6 +358,7 @@
     <div class="rules">
       <b>怎么玩</b><br>
       · 系统随机抽一只 <span class="em">真实A股</span> 的历史行情，<b>隐藏名称和代码</b>，只给你看K线<br>
+      · 只从<b>近一年至少涨停过一次的活跃股</b>里抽 — 冷门无行情的票不进池子<br>
       · 每个交易日你只能做一个决定：<span class="em">买</span>（全仓买入）、<span class="em">卖</span>（清仓卖出）、<span class="em">过</span>（什么都不做，进入下一天）<br>
       · 无杠杆、无加仓、无做T — <b>一次只持一个仓位，全进全出</b><br><br>
       <b>关键：不许偷看未来</b><br>
@@ -273,7 +389,7 @@
     <div class="sub">这个游戏是怎么算分的</div>
 
     <h3>① 数据是真实的</h3>
-    <div class="note">全部K线来自真实A股日线数据（2025-09 至 2026-09），共 27 只不同板块、不同股性的标的。每次开局随机抽一只、随机切一段作为起点，所以同一局不会重复。</div>
+    <div class="note">全部K线来自真实A股日线数据（2025-09 至 2026-09）。<b>股票池只收录近一年至少出现过一次收盘涨停的活跃股</b>（主板/创业板/科创板涨停幅度分别按 10% / 20% 判定），覆盖券商、AI算力、机器人、固态电池、核聚变、军工、稀土、并购重组等热门题材。每次开局随机抽一只、随机切一段作为起点，所以同一局不会重复。</div>
 
     <h3>② 三个动作，单一仓位</h3>
     <div class="note">
@@ -289,6 +405,18 @@
       所以这个游戏采用<b>滑动窗口</b>：始终只显示<b>最近 N 根</b>K线，老的自然向左滚出视野。<br>
       <b>好处是——无论你打到第几天，单根K线的宽度都完全一样</b>，形态永远清晰。左上角的日期让你随时知道自己在哪一天。<br>
       左下角可切换 40 / 70 / 110 根：<b>40 根</b>看得最清楚（适合看单根形态），<b>110 根</b>能看更长趋势（适合看均线关系）。
+    </div>
+
+    <h3>②·6 止损 / 止盈线（买入后才出现，可以直接拖）</h3>
+    <div class="note">
+      <b>止损止盈是持仓纪律 —— 只有买进去之后才存在。</b>一买入，图上立刻出现两条横向虚线：
+      <b>绿色是止损线、红色是止盈线，用鼠标（或手指）上下拖动就能改价位</b>，拖着能看到价位和百分比实时变化。<br>
+      一卖出，两条线随仓位一起消失，侧栏面板也重新锁上（不让你对着没有仓位的票设线）。本局用过的纪律会作为下次买入的默认值。<br>
+      侧栏小面板是同一件事的另一种设置方式：那里填的是<b>百分比纪律</b>（相对买入价）；拖线则是直接定价位，两边自动同步换算。<br>
+      <b>「自动执行」默认是关闭的</b> —— 默认情况这两条线<b>只是纪律参考</b>：到价了卖不卖，由你自己点「卖」。
+      勾上之后才由系统代你执行，口径与真实挂单一致：跳空开盘已穿越价位 → 按开盘价成交（可能比设定价更差）；盘中触及 → 按设定价成交。
+      同一天既碰止损又碰止盈（日线上分不出来）→ <b>按止损优先</b>，这是刻意选的悲观口径 —— 练的就是守纪律。<br>
+      <b>可设范围：</b>止损 −1% ~ −50%，止盈 +1% ~ +300%，且止损线永远在买入价下方、止盈线永远在上方（不会互相打架）。
     </div>
 
     <h3>③ 买点评分（0-100）：买在了什么位置</h3>
@@ -325,7 +453,7 @@
 
 <script src="game-data.js"></script>
 <script>
-(function(){
+function __BOOT__(){
 'use strict';
 
 /* ============ 常量 ============ */
@@ -339,6 +467,8 @@ var S = {
   stock:null, bars:[], idx:0, endIdx:0,
   cash:START_CASH, shares:0, entryPrice:0, entryIdx:0,
   maxFav:0, maxAdv:0,          // 持仓期间最大浮盈/浮亏（相对买入价）
+  stopPct:-5, takePct:10, exitOn:true,   // 止损/止盈纪律（百分比，存localStorage跨局保留）
+  stopPrice:null, takePrice:null,        // 止损/止盈价位（持仓时锁定；空仓为 null，只存百分比纪律）
   trades:[], log:[],
   done:false
 };
@@ -362,26 +492,188 @@ function fakeCode(){
   return s;
 }
 
+/* ============ 止损 / 止盈纪律 ============ */
+var EXIT_KEY     = 'pangan_trainer_exit_v2';   // v2：自动执行改为默认关闭（v1 里默认开着，会出现「买入次日被自动卖掉」的困惑）
+var EXIT_KEY_OLD = 'pangan_trainer_exit_v1';
+var EXIT_DEF = { stop:5, take:10, on:false };  // 默认只画线、不代你下单 —— 到价卖不卖由你决定
+var EXIT_TAG = { stop:'止损', take:'止盈', manual:'主动', expire:'到期' };
+
+function loadExit(){
+  var d = EXIT_DEF;
+  try{
+    var s = JSON.parse(localStorage.getItem(EXIT_KEY));
+    if(!s){                                    // 迁移旧档：保留止损/止盈百分比纪律，但「自动执行」不继承（默认关）
+      var old = JSON.parse(localStorage.getItem(EXIT_KEY_OLD));
+      if(old) s = { stop:old.stop, take:old.take };
+    }
+    if(s && isFinite(s.stop) && isFinite(s.take))
+      d = { stop:clamp(+s.stop,1,50), take:clamp(+s.take,1,300), on:s.on === true };
+  }catch(e){}
+  S.stopPct = -d.stop; S.takePct = d.take; S.exitOn = d.on;
+}
+function saveExit(){
+  try{
+    localStorage.setItem(EXIT_KEY, JSON.stringify(
+      { stop:Math.abs(S.stopPct), take:S.takePct, on:S.exitOn }));
+  }catch(e){}
+}
+
+/* ---- 纪律百分比 ↔ 价位 ----
+ * 止损/止盈是**持仓纪律**：只有买入后才存在，卖出即消失。所以：
+ * · 空仓：不画线、面板锁定（S.stopPrice / takePrice 保持 null）；
+ * · 持仓：锚定买入价，锁定绝对价位 S.stopPrice / S.takePrice —— 执行与画线只看它（拖线改的也是它）。
+ * 百分比 S.stopPct / S.takePct 是跨局保留的「纪律默认值」，买入那一刻用来折算这两条价位。 */
+function exitRefPrice(){
+  return (S.shares > 0 && S.entryPrice > 0) ? S.entryPrice : 0;   // 只在持仓时有参考价
+}
+function exitPriceOf(kind, ref){
+  var r = ref || exitRefPrice();
+  if(!r || r <= 0) return null;
+  var p = (kind === 'stop') ? S.stopPct : S.takePct;
+  return +(r * (1 + p/100)).toFixed(2);
+}
+/* 把两条价位绑定到纪律百分比（买入时、持仓中改百分比时调用） */
+function syncExitPrices(){
+  if(S.shares <= 0 || !(S.entryPrice > 0)){ S.stopPrice = null; S.takePrice = null; return; }
+  S.stopPrice = exitPriceOf('stop', S.entryPrice);
+  S.takePrice = exitPriceOf('take', S.entryPrice);
+}
+/* 面板与拖线共用同一套区间（止损 1~50% 亏损方向，止盈 1~300% 盈利方向）。
+ * 两条线的合法区间互不重叠（一条恒在参考价下方、一条恒在上方），所以永远满足止损 < 止盈。 */
+var EX_RANGE = { stop:[1,50], take:[1,300] };
+
+/* 价位 → 百分比（拖线后反算纪律，clamp 到面板允许的范围） */
+function pctFromExitPrice(kind, px, ref){
+  var p = (px/ref - 1) * 100;
+  if(!(ref > 0) || !isFinite(p)) return (kind === 'stop') ? S.stopPct : S.takePct;
+  if(kind === 'stop') return -clamp(Math.abs(p), EX_RANGE.stop[0], EX_RANGE.stop[1]);
+  return clamp(p, EX_RANGE.take[0], EX_RANGE.take[1]);
+}
+/* 价位 → 合法区间内的价位（拖线时用） */
+function clampExitPrice(kind, px, ref){
+  if(kind === 'stop')
+    return clamp(px, ref*(1 - EX_RANGE.stop[1]/100), ref*(1 - EX_RANGE.stop[0]/100));
+  return clamp(px, ref*(1 + EX_RANGE.take[0]/100), ref*(1 + EX_RANGE.take[1]/100));
+}
+
+/* 盘中触发判定：返回 {px, reason} 或 null。
+ * 口径与真实挂单一致：
+ * · 跳空开盘已穿越价位 → 按开盘价成交（开盘价可能比触发价更差）；
+ * · 盘中触及 → 按设定价成交；
+ * · 同一天先触止损还是先触止盈，日线上分不出来 → 按止损优先（悲观口径，练纪律）。 */
+function checkExitTrigger(b){
+  var stopP = S.stopPrice, takeP = S.takePrice;
+  if(!isFinite(stopP) || !isFinite(takeP)) return null;
+  if(b[1] <= stopP) return {px:b[1],   reason:'stop'};   // 跳空低开穿止损
+  if(b[3] <= stopP) return {px:stopP, reason:'stop'};   // 盘中打到止损
+  if(b[1] >= takeP) return {px:b[1],   reason:'take'};   // 跳空高开穿止盈
+  if(b[2] >= takeP) return {px:takeP, reason:'take'};   // 盘中打到止盈
+  return null;
+}
+
+function autoExit(px, reason){
+  S.cash = S.shares * px;
+  var ret = (px - S.entryPrice)/S.entryPrice*100;
+  var t = S.trades[S.trades.length-1];
+  t.exitIdx = S.idx; t.exitPrice = px; t.ret = ret; t.exitReason = reason;
+  t.maxFav = S.maxFav; t.maxAdv = S.maxAdv;
+  addLog(S.bars[S.idx][0], reason==='stop' ? '触发止损' : '触发止盈',
+    fmt(px) + '  (' + pct(ret) + ')');
+  S.shares = 0; S.entryPrice = 0; S.stopPrice = null; S.takePrice = null;
+}
+
+function renderExitPanel(){
+  if(!$('inStop')) return;
+  var holding = S.shares > 0;
+  var ae = (typeof document.activeElement !== 'undefined') ? document.activeElement : null;
+  if(ae !== $('inStop')) $('inStop').value = Math.abs(S.stopPct);
+  if(ae !== $('inTake')) $('inTake').value = S.takePct;
+  $('exitOn').checked = S.exitOn;
+  $('exitRR').textContent = (S.takePct/Math.abs(S.stopPct)).toFixed(1) + ' : 1';
+
+  // 空仓整块锁定：止损止盈只属于持仓，没建仓就没有可设置的东西（图上的线也一起消失）
+  $('inStop').disabled = !holding;
+  $('inTake').disabled = !holding;
+  $('exitOn').disabled = !holding;
+  if($('exitPanel')) $('exitPanel').classList.toggle('lock', !holding);
+
+  var pstr = function(p){ return isFinite(p) ? fmt(p) : '—'; };
+  if(holding){
+    // 持仓：显示将要执行的绝对价位（与图上两条线完全一致）
+    $('exitNow').innerHTML = '持仓中 · 止损 <b style="color:var(--green)">'+pstr(S.stopPrice)+
+      '</b> / 止盈 <b style="color:var(--red)">'+pstr(S.takePrice)+'</b>'+
+      (S.exitOn ? '' : '（自动执行已关）') +
+      '<br><span style="color:var(--ink3)">图上虚线可直接拖动改价位</span>';
+  }else{
+    $('exitNow').textContent = '空仓 — 买入后才能设置止损 / 止盈';
+  }
+}
+
+/* ---- 涨停判定 ---- */
+/* 数据池只收录「近一年至少一次收盘涨停」的活跃股。
+ * 阈值按板块：主板±10%，创业板/科创板±20%，北交所±30%，ST±5%。
+ * 前复权价格有两位小数的舍入误差，容差 0.2%。 */
+function limitUpPct(st){
+  var code = String(st.s||''), name = String(st.n||'');
+  if(/ST/i.test(name)) return 0.05;
+  if(/^sz30/.test(code) || /^sh68/.test(code)) return 0.20;
+  if(/^bj/.test(code)) return 0.30;
+  return 0.10;
+}
+/* 该股全部「收盘涨停」的K线索引 */
+function limitUpIdxs(st){
+  var b = st.b, tol = limitUpPct(st) - 0.002, out = [];
+  for(var i=1;i<b.length;i++){
+    if(b[i][4]/b[i-1][4] - 1 >= tol) out.push(i);
+  }
+  return out;
+}
+
 /* ============ 开局 ============ */
 function newGame(){
+  if(!window.GAME_DATA || !window.GAME_DATA.stocks || !window.GAME_DATA.stocks.length){
+    window.__errBar('行情数据没加载：请确认 game-data.js 与 index.html 在同一个文件夹，然后刷新页面。');
+    return;
+  }
   var pool = window.GAME_DATA.stocks;
-  var st = pool[rnd(pool.length)];
+
+  /* 抽样规则：只玩有股性的票。
+   * 1) 池子本身已全部是「近一年至少一次收盘涨停」的活跃股；
+   * 2) 涨停日锚定：随机选一个落在决策期内的涨停日，把局拉长到至少盖住它，
+   *    保证这一局玩的过程中大概率真的会遇到一次涨停（而不是涨停都藏在预热历史里）。
+   *    若该股涨停全在开局预热段（图上看得到形态），退回随机长度。 */
+  var st = null, endIdx = 0;
+  for(var tries = 0; tries < 80 && !st; tries++){
+    var cand = pool[rnd(pool.length)];
+    var maxEnd = cand.b.length - MIN_TAIL;
+    if(maxEnd <= WARMUP + 30) continue;                 // 数据太短，撑不起一局
+    var span = WARMUP + 45 + rnd(70);                   // 局长 45~114 个交易日
+    var e = Math.min(maxEnd, span);
+    var ups = limitUpIdxs(cand).filter(function(L){ return L >= WARMUP + 3 && L <= maxEnd; });
+    if(ups.length){
+      var L = ups[rnd(ups.length)];
+      if(L > e) e = Math.min(maxEnd, L);                // 局至少延伸到锚定的涨停日
+    }else if(e <= WARMUP + 30){
+      continue;
+    }
+    st = cand; endIdx = e;
+  }
+  if(!st){ st = pool[0]; endIdx = Math.min(st.b.length - MIN_TAIL, WARMUP + 45); }
+
   S.stock = st;
   S.bars  = st.b;
   S.idx   = WARMUP;                                   // 从第 WARMUP 根开始做决策
-  // 随机决定这一局的长度（给玩家不同的持有时长体验）
-  var maxEnd = S.bars.length - MIN_TAIL;
-  var span   = 45 + rnd(70);                          // 45~114 个交易日
-  S.endIdx   = Math.min(maxEnd, S.idx + span);
-  if(S.endIdx <= S.idx + 20) S.endIdx = Math.min(maxEnd, S.idx + 45);
+  S.endIdx = endIdx;
 
   S.cash = START_CASH; S.shares = 0; S.entryPrice = 0; S.entryIdx = 0;
+  S.stopPrice = null; S.takePrice = null;
   S.maxFav = 0; S.maxAdv = 0; S.trades = []; S.log = []; S.done = false;
   S._saved = false;
   S.fake = fakeCode();
+  loadExit();                                        // 止损/止盈设置跨局保留
 
   $('bSector').textContent = '· ' + st.k;
-  render(); renderLog(); renderStats();
+  renderStats(); renderLog(); render();   // 状态条先更新：即使画图失败，界面也不会停在占位符上
 }
 
 /* ============ 渲染图表 ============ */
@@ -394,6 +686,7 @@ function newGame(){
  */
 var VISIBLE_BARS = 70;      // 视窗内显示的K线根数（保证单根宽度足够看形态）
 function render(){
+  if(typeof echarts === 'undefined') return;           // 图表库没就绪：先不画，别的照常
   var all = S.bars.slice(0, S.idx+1);                  // 只取到当前日 —— 无未来函数
   // 取最近 VISIBLE_BARS 根进入视窗（不够则全取）
   var start = Math.max(0, all.length - VISIBLE_BARS);
@@ -434,6 +727,9 @@ function render(){
       areaData = [[{xAxis:dates[a-start]},{xAxis:dates[b-start]}]];
     }
   }
+
+  // 止损 / 止盈线不在这里画：它们是可拖动的 DOM 覆盖层（见 renderExitLayer），
+  // markLine 只能看不能拖，所以两条线的位置由覆盖层自己按价位换算像素。
 
   // 成交量子图：按涨跌着色
   var volData = bars.map(function(b){
@@ -503,8 +799,154 @@ function render(){
       { name:'成交量', type:'bar', data:volData, xAxisIndex:1, yAxisIndex:1, barWidth:'62%' }
     ]
   };
-  if(!chart){ chart = echarts.init($('chart')); }
+  if(!chart){
+    chart = echarts.init($('chart'));
+    // 滚轮缩放会改变 X 范围，而 Y 轴是 scale:true（按可视数据自适应）→ 两条线要重新定位
+    chart.on('dataZoom', function(){ renderExitLayer(); });
+  }
   chart.setOption(opt, true);
+  renderExitLayer();
+}
+
+/* ============ 图上的止损 / 止盈线（可拖动设置价位） ============ */
+/* 为什么不用 markLine：markLine 只能看不能拖。
+ * 这里用一个覆盖在 #chart 上的透明层，两条线是普通 DOM：
+ * 价位 → 像素 用 chart.convertToPixel 换算；拖动时只改 DOM，松手才回写状态并重绘图表 —— 
+ * 每帧重画 K 线既卡，又会因为 Y 轴自适应变化让指针下的线跟着乱跳。 */
+var exDrag = null;
+
+function exitLineEl(kind){ return $(kind === 'stop' ? 'exStop' : 'exTake'); }
+
+/* 覆盖层与图区对齐，两条线摆到正确高度。状态一变就重新调用它（可安全重入）。
+ * 空仓整层隐藏：止损止盈是持仓纪律，没建仓就不该在图上出现任何线。 */
+function renderExitLayer(){
+  var lay = $('exLayer');
+  if(!lay) return;
+  if(S.shares <= 0 || !chart || !S.bars || !S.bars.length || !S.bars[S.idx]){
+    lay.classList.remove('on'); return;
+  }
+  var dom = $('chart');
+  lay.style.left   = dom.offsetLeft   + 'px';
+  lay.style.top    = dom.offsetTop    + 'px';
+  lay.style.width  = dom.offsetWidth  + 'px';
+  lay.style.height = dom.offsetHeight + 'px';
+  lay.classList.add('on');
+  placeExitLine('stop', S.stopPrice);
+  placeExitLine('take', S.takePrice);
+}
+
+/* K 线主图占的像素区间（对应 render 里的 grid[0]：top 8% / height 62%） */
+function chartGridSpan(){
+  var dom = $('chart');
+  var h = dom ? dom.offsetHeight : 0;
+  return { top:h*0.08, bottom:h*0.70 };
+}
+function priceToY(price){
+  if(!isFinite(price) || !chart || typeof chart.convertToPixel !== 'function') return null;
+  try{
+    var v = chart.convertToPixel({yAxisIndex:0}, price);
+    if(v && typeof v.length === 'number') v = v[0];
+    return isFinite(v) ? v : null;
+  }catch(e){ return null; }
+}
+function yToPrice(y){
+  if(!chart || typeof chart.convertFromPixel !== 'function') return null;
+  try{
+    var v = chart.convertFromPixel({yAxisIndex:0}, y);
+    if(v && typeof v.length === 'number') v = v[0];
+    return isFinite(v) ? v : null;
+  }catch(e){ return null; }
+}
+
+function placeExitLine(kind, price, dragging){
+  var el = exitLineEl(kind);
+  if(!el) return;
+  var y = isFinite(price) ? priceToY(price) : null;
+  if(y === null){ el.style.display = 'none'; return; }
+  el.style.display = '';
+  var gp = chartGridSpan();                    // 价位离视野太远就贴边显示，tag 里仍是真实价位
+  el.style.top = clamp(y, gp.top, gp.bottom) + 'px';
+  el.classList.toggle('off', !S.exitOn);
+  exitTag(kind, el, price, dragging);
+}
+function exitTag(kind, el, price, dragging){
+  var tag = el.querySelector('.tag');
+  if(!tag) return;
+  var ref = exDrag ? exDrag.ref : exitRefPrice();   // 拖动中锁定参考价，避免位置自反馈
+  var rel = (ref > 0) ? (price/ref - 1)*100 : 0;
+  tag.textContent = (kind === 'stop' ? '止损 ' : '止盈 ') + fmt(price) +
+    '  ' + (rel >= 0 ? '+' : '') + rel.toFixed(2) + '%' +
+    (S.exitOn ? '' : ' · 手动') + (dragging ? '  ⟷ 松手生效' : '');
+}
+
+/* 松手回写：持仓时以拖动到的价位为准（执行和画线都认它），百分比同步反算（跨局保留的是百分比） */
+function commitExitPrice(kind, price, ref){
+  if(!isFinite(price) || !(ref > 0)) return;
+  var px = clampExitPrice(kind, price, ref);
+  if(kind === 'stop'){
+    S.stopPct = pctFromExitPrice('stop', px, ref);
+    if(S.shares > 0) S.stopPrice = +px.toFixed(2);
+  }else{
+    S.takePct = pctFromExitPrice('take', px, ref);
+    if(S.shares > 0) S.takePrice = +px.toFixed(2);
+  }
+  saveExit();
+}
+
+/* ---- 拖动 ---- */
+function pricePerPixel(){
+  var a = yToPrice(120), b = yToPrice(220);
+  if(a !== null && b !== null && a !== b) return Math.abs(b - a) / 100;   // 1px 值多少价格
+  return 0;
+}
+function startExitDrag(kind, e){
+  if(S.shares <= 0 || !chart || !S.bars || !S.bars.length) return;   // 空仓没有线可拖
+  var ev = e.touches ? e.touches[0] : e;
+  var ref = exitRefPrice();
+  if(!(ref > 0)) return;
+  var cur = (kind === 'stop') ? S.stopPrice : S.takePrice;
+  if(!isFinite(cur)) return;
+  exDrag = { kind:kind, ref:ref, y0:ev.clientY, p0:cur, price:cur, ppp:pricePerPixel(), moved:false,
+             el:exitLineEl(kind) };
+  if(exDrag.el) exDrag.el.classList.add('dragging');
+  document.addEventListener('mousemove', onExitDrag);
+  document.addEventListener('mouseup', endExitDrag);
+  document.addEventListener('touchmove', onExitDrag, {passive:false});
+  document.addEventListener('touchend', endExitDrag);
+  if(e.cancelable) e.preventDefault();
+  if(chart.dispatchAction) chart.dispatchAction({ type:'hideTip' });
+}
+function onExitDrag(e){
+  if(!exDrag) return;
+  if(e.cancelable) e.preventDefault();
+  var ev = e.touches ? e.touches[0] : e;
+  if(exDrag.ppp > 0){
+    var dy = exDrag.y0 - ev.clientY;                                     // 向上拖 = 价格更高
+    exDrag.price = clampExitPrice(exDrag.kind, exDrag.p0 + dy*exDrag.ppp, exDrag.ref);
+  }
+  exDrag.moved = true;
+  placeExitLine(exDrag.kind, exDrag.price, true);
+}
+function endExitDrag(){
+  document.removeEventListener('mousemove', onExitDrag);
+  document.removeEventListener('mouseup', endExitDrag);
+  document.removeEventListener('touchmove', onExitDrag);
+  document.removeEventListener('touchend', endExitDrag);
+  if(!exDrag) return;
+  var d = exDrag; exDrag = null;                                          // 先清空，让 tag 用真实的参考价重算
+  if(d.el) d.el.classList.remove('dragging');
+  if(d.moved) commitExitPrice(d.kind, d.price, d.ref);
+  renderExitPanel();
+  if(S.bars && S.bars.length) render(); else renderExitLayer();
+}
+function bindExitDrag(){
+  ['stop','take'].forEach(function(kind){
+    var el = exitLineEl(kind);
+    if(!el || el._dragBound) return;
+    el._dragBound = true;
+    el.addEventListener('mousedown', function(e){ startExitDrag(kind, e); });
+    el.addEventListener('touchstart', function(e){ startExitDrag(kind, e); }, {passive:false});
+  });
 }
 
 /* ============ 渲染状态条 ============ */
@@ -551,6 +993,8 @@ function renderStats(){
   $('btnBuy').disabled  = S.shares > 0 || S.done;
   $('btnSell').disabled = S.shares === 0 || S.done;
   $('btnPass').disabled = S.done;
+
+  renderExitPanel();   // 止损/止盈面板同步（价位、盈亏比、开关状态）
 }
 
 /* ============ 日志 ============ */
@@ -580,9 +1024,11 @@ function doBuy(){
   S.entryIdx = S.idx;
   S.cash = 0;
   S.maxFav = 0; S.maxAdv = 0;
-  S.trades.push({ entryIdx:S.idx, entryPrice:px, exitIdx:null, exitPrice:null, ret:null, maxFav:0, maxAdv:0 });
+  syncExitPrices();                        // 建仓瞬间把纪律百分比折算成两条止损/止盈线
+  S.trades.push({ entryIdx:S.idx, entryPrice:px, exitIdx:null, exitPrice:null, ret:null, maxFav:0, maxAdv:0,
+                  stopPrice:S.stopPrice, takePrice:S.takePrice });
   addLog(S.bars[S.idx][0], '买入 @', fmt(px));
-  render(); renderStats();
+  renderStats(); render();
   nextDay();
 }
 
@@ -592,11 +1038,11 @@ function doSell(){
   S.cash = S.shares * px;
   var ret = (px - S.entryPrice)/S.entryPrice*100;
   var t = S.trades[S.trades.length-1];
-  t.exitIdx = S.idx; t.exitPrice = px; t.ret = ret;
+  t.exitIdx = S.idx; t.exitPrice = px; t.ret = ret; t.exitReason = 'manual';
   t.maxFav = S.maxFav; t.maxAdv = S.maxAdv;
   addLog(S.bars[S.idx][0], '卖出 @', fmt(px) + '  (' + pct(ret) + ')');
-  S.shares = 0; S.entryPrice = 0;
-  render(); renderStats();
+  S.shares = 0; S.entryPrice = 0; S.stopPrice = null; S.takePrice = null;
+  renderStats(); render();
   nextDay();
 }
 
@@ -622,8 +1068,13 @@ function nextDay(){
     if(adv < S.maxAdv) S.maxAdv = adv;
     S.trades[S.trades.length-1].maxFav = S.maxFav;
     S.trades[S.trades.length-1].maxAdv = S.maxAdv;
+    // 止损/止盈纪律：当日盘中触发即自动卖出（跳空按开盘价成交）
+    if(S.exitOn){
+      var trig = checkExitTrigger(b);
+      if(trig) autoExit(trig.px, trig.reason);
+    }
   }
-  render(); renderStats();
+  renderStats(); render();
   if(S.idx >= S.endIdx) finish(false);
 }
 
@@ -664,9 +1115,10 @@ function finish(quit){
     S.cash = S.shares * px;
     var t = S.trades[S.trades.length-1];
     t.exitIdx = S.idx; t.exitPrice = px; t.ret = (px - t.entryPrice)/t.entryPrice*100;
-    S.shares = 0;
+    t.exitReason = 'expire';
+    S.shares = 0; S.stopPrice = null; S.takePrice = null;
   }
-  render(); renderStats();
+  renderStats(); render();
 
   var equity = S.cash;
   var ret = (equity - START_CASH)/START_CASH*100;
@@ -755,12 +1207,14 @@ function showReview(r){
         '<td style="color:'+(t.ret>=0?'var(--red)':'var(--green)')+'">'+
           (t.ret!==null?pct(t.ret):'—')+'</td>'+
         '<td>'+(t.maxAdv?fmt(t.maxAdv)+'%':'—')+'</td>'+
+        '<td>'+(t.exitReason?'<span style="color:'+(t.exitReason==='stop'?'var(--green)':(t.exitReason==='take'?'var(--red)':'var(--ink2)'))+'">'+
+          (EXIT_TAG[t.exitReason]||'—')+'</span>':'—')+'</td>'+
         '<td>'+es+'</td>'+
         '<td>'+(xs!==null?xs.toFixed(0):'—')+'</td>'+
         '</tr>';
     });
   }else{
-    rows = '<tr><td colspan="8" style="text-align:center;color:var(--ink3)">你全程没有出手 — 一次都没买过</td></tr>';
+    rows = '<tr><td colspan="9" style="text-align:center;color:var(--ink3)">你全程没有出手 — 一次都没买过</td></tr>';
   }
 
   // ---- 累计统计（跨局）----
@@ -893,6 +1347,10 @@ function saveCum(r){
 
 /* 揭示全貌：把整只票的真实走势画出来 + 标出你的买卖点 */
 function revealAll(){
+  if(typeof echarts === 'undefined'){
+    window.__errBar('图表库未加载，暂时看不了走势全貌');
+    return;
+  }
   var bars = S.bars;
   var dates = bars.map(function(b){ return b[0]; });
   var ohlc  = bars.map(function(b){ return [b[1], b[4], b[3], b[2]]; });
@@ -943,6 +1401,46 @@ function revealAll(){
 $('btnBuy').onclick  = doBuy;
 $('btnSell').onclick = doSell;
 $('btnPass').onclick = doPass;
+
+// 止损/止盈设置：只在持仓时可改（空仓时面板是锁的，图上的线也不存在）。
+// 输入框改的是「纪律百分比」，改完按买入价折算成图上两条线；拖线则是反过来由价位反算百分比。
+function applyExitInput(){
+  if(S.shares <= 0) return;                    // 空仓没有仓位，止损止盈无从谈起
+  syncExitPrices();
+  saveExit(); renderExitPanel();
+  if(S.bars && S.bars.length) render(); else renderExitLayer();
+}
+$('inStop').addEventListener('change', function(){
+  if(S.shares <= 0) return;
+  var v = parseFloat(this.value); if(!isFinite(v)) v = EXIT_DEF.stop;
+  S.stopPct = -clamp(v, EX_RANGE.stop[0], EX_RANGE.stop[1]);
+  applyExitInput();
+});
+$('inTake').addEventListener('change', function(){
+  if(S.shares <= 0) return;
+  var v = parseFloat(this.value); if(!isFinite(v)) v = EXIT_DEF.take;
+  S.takePct = clamp(v, EX_RANGE.take[0], EX_RANGE.take[1]);
+  applyExitInput();
+});
+// 输入过程中实时联动：只更新面板和两条线，不重画整张图（每敲一个字符就重画 K 线会卡）
+['inStop','inTake'].forEach(function(id){
+  $(id).addEventListener('input', function(){
+    if(S.shares <= 0) return;
+    var v = parseFloat(this.value); if(!isFinite(v)) return;
+    if(id === 'inStop') S.stopPct = -clamp(v, EX_RANGE.stop[0], EX_RANGE.stop[1]);
+    else                S.takePct =  clamp(v, EX_RANGE.take[0], EX_RANGE.take[1]);
+    syncExitPrices(); renderExitPanel(); renderExitLayer();
+  });
+});
+$('exitOn').addEventListener('change', function(){
+  if(S.shares <= 0) return;
+  S.exitOn = this.checked;
+  saveExit(); renderExitPanel();
+  if(S.bars && S.bars.length) render(); else renderExitLayer();
+});
+
+// 图上两条线：按住拖动即改价位（持仓中照新价位执行，空仓时反算成纪律百分比预存）
+bindExitDrag();
 $('btnQuit').onclick = function(){ if(!S.done) finish(true); };
 $('btnStart').onclick = function(){ $('ovStart').classList.remove('on'); newGame(); };
 $('btnHowto').onclick = function(){ $('ovHelp').classList.add('on'); };
@@ -963,6 +1461,12 @@ document.addEventListener('keydown', function(e){
   if($('ovStart').classList.contains('on')) return;
   if($('ovReview').classList.contains('on')) return;
   if($('ovHelp').classList.contains('on')) return;
+  // 在输入框里调止损/止盈时，按键属于输入本身，不能触发买卖快捷键
+  var tag = (e.target && e.target.tagName) || '';
+  if(tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT'){
+    if(e.key===' ') e.preventDefault();
+    return;
+  }
   if(e.key==='b'||e.key==='B'){ if(!$('btnBuy').disabled) doBuy(); }
   else if(e.key==='s'||e.key==='S'){ if(!$('btnSell').disabled) doSell(); }
   else if(e.key===' '){ e.preventDefault(); if(!$('btnPass').disabled) doPass(); }
@@ -977,6 +1481,22 @@ window.addEventListener('resize', function(){
   }, 160);
 });
 
+}
+
+/* ============ 启动调度 ============
+ * 图表库可能来自本地文件、也可能来自回退的 CDN，是异步的；
+ * 所以等它就绪后再启动游戏。即使图表库彻底加载失败，也让游戏先跑起来
+ * （状态条 / 日志 / 买卖按钮都能用），只是顶部给一条明确的错误提示，
+ * 而不是留下一个「图是空的、代码显示 ??????」的哑巴页面。
+ */
+(function(){
+  function start(ok){
+    if(!ok) window.__errBar('图表库（ECharts）加载失败，K线画不出来：请联网后刷新页面，或把 echarts.min.js 放到本文件夹。');
+    __BOOT__();
+  }
+  if(typeof echarts !== 'undefined') start(true);
+  else if(window.__ECHARTS && window.__ECHARTS.cbs) window.__ECHARTS.cbs.push(start);
+  else start(false);
 })();
 </script>
 </body>
